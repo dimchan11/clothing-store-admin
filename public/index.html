@@ -136,6 +136,29 @@
             box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
         }
         
+        .clear-search {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--gray);
+            cursor: pointer;
+            font-size: 1.5rem;
+            width: 30px;
+            height: 30px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+        
+        .clear-search:hover {
+            background: #f0f0f0;
+            color: var(--danger);
+        }
+        
         /* Статистика */
         .stats-grid {
             display: grid;
@@ -620,6 +643,7 @@
             <div class="search-box">
                 <input type="text" class="search-input" id="search-input" 
                        placeholder="Поиск по названию товара...">
+                <button class="clear-search" id="clear-search" aria-label="Очистить поиск">×</button>
             </div>
             
             <div class="products-grid" id="products-grid">
@@ -630,6 +654,12 @@
                 <div class="empty-state-icon">🛍️</div>
                 <div class="empty-state-title">Товаров пока нет</div>
                 <p>Добавьте первый товар во вкладке "Добавить"</p>
+            </div>
+            
+            <div id="no-search-results" class="empty-state" style="display: none;">
+                <div class="empty-state-icon">🔍</div>
+                <div class="empty-state-title">Ничего не найдено</div>
+                <p>Попробуйте изменить поисковый запрос</p>
             </div>
         </div>
 
@@ -727,18 +757,20 @@
 
     <script>
         // ========== КОНФИГУРАЦИЯ ==========
-        // Автоматическое определение URL API
         const API_URL = window.location.origin;
         console.log('API URL:', API_URL);
 
         // ========== ПЕРЕМЕННЫЕ ==========
         let allProducts = [];
+        let currentSearchQuery = '';
 
         // ========== DOM ЭЛЕМЕНТЫ ==========
         const elements = {
             productsGrid: document.getElementById('products-grid'),
             searchInput: document.getElementById('search-input'),
+            clearSearch: document.getElementById('clear-search'),
             noProducts: document.getElementById('no-products'),
+            noSearchResults: document.getElementById('no-search-results'),
             
             // Форма добавления
             productName: document.getElementById('product-name'),
@@ -804,7 +836,7 @@
                 
                 // Обновляем данные при переключении
                 if (tabId === 'products') {
-                    displayProducts(allProducts);
+                    displayProducts();
                 } else if (tabId === 'stats') {
                     updateStatistics();
                 }
@@ -884,16 +916,15 @@
                     throw new Error(error.error || 'Ошибка сервера');
                 }
                 
-                const savedProduct = await response.json();
+                await response.json();
                 
                 showMessage(`Товар "${name}" добавлен!`);
                 
-                // Обновляем список
-                allProducts.push(savedProduct);
-                displayProducts(allProducts);
-                
                 // Очищаем форму
                 resetForm();
+                
+                // Загружаем обновленные данные
+                await loadProducts();
                 
                 // Переключаемся на вкладку товаров
                 elements.tabBtns[0].click();
@@ -925,7 +956,9 @@
                 if (!response.ok) throw new Error('Ошибка загрузки');
                 
                 allProducts = await response.json();
-                displayProducts(allProducts);
+                
+                // Отображаем товары с учетом поиска
+                displayProducts();
                 updateStatistics();
                 updateServerStatus('✅ Онлайн');
                 
@@ -934,24 +967,42 @@
                 showMessage('Ошибка загрузки товаров', 'error');
                 updateServerStatus('❌ Оффлайн');
                 
-                // Показываем демо-данные
                 allProducts = [];
-                displayProducts(allProducts);
+                displayProducts();
             }
         }
 
         // ========== ОТОБРАЖЕНИЕ ТОВАРОВ ==========
-        function displayProducts(products) {
+        function displayProducts() {
             elements.productsGrid.innerHTML = '';
             
-            if (products.length === 0) {
-                elements.noProducts.style.display = 'block';
-                return;
+            // Фильтруем товары по поисковому запросу
+            let productsToShow = [...allProducts];
+            
+            if (currentSearchQuery) {
+                productsToShow = allProducts.filter(product =>
+                    product.name.toLowerCase().includes(currentSearchQuery)
+                );
             }
             
-            elements.noProducts.style.display = 'none';
+            // Показываем/скрываем состояния
+            if (allProducts.length === 0) {
+                elements.noProducts.style.display = 'block';
+                elements.noSearchResults.style.display = 'none';
+                return;
+            } else {
+                elements.noProducts.style.display = 'none';
+            }
             
-            products.forEach(product => {
+            if (productsToShow.length === 0 && currentSearchQuery) {
+                elements.noSearchResults.style.display = 'block';
+                return;
+            } else {
+                elements.noSearchResults.style.display = 'none';
+            }
+            
+            // Создаем карточки товаров
+            productsToShow.forEach(product => {
                 const card = createProductCard(product);
                 elements.productsGrid.appendChild(card);
             });
@@ -1032,14 +1083,9 @@
                 try {
                     await updateProduct(productId, sizes);
                     showMessage('Изменения сохранены');
-                    this.innerHTML = '✅ Сохранено';
-                    this.style.background = '#2ecc71';
                     
-                    setTimeout(() => {
-                        this.innerHTML = '💾 Сохранить';
-                        this.style.background = '';
-                        this.disabled = false;
-                    }, 2000);
+                    // Загружаем обновленные данные
+                    await loadProducts();
                     
                 } catch (error) {
                     this.innerHTML = '❌ Ошибка';
@@ -1053,7 +1099,8 @@
             // Удаление
             const deleteBtn = card.querySelector('.delete-btn');
             deleteBtn.addEventListener('click', async function() {
-                if (!confirm(`Удалить товар "${card.querySelector('.product-title').textContent}"?`)) {
+                const productName = card.querySelector('.product-title').textContent;
+                if (!confirm(`Удалить товар "${productName}"?`)) {
                     return;
                 }
                 
@@ -1064,19 +1111,8 @@
                     await deleteProduct(productId);
                     showMessage('Товар удален');
                     
-                    // Анимация удаления
-                    card.style.opacity = '0.5';
-                    card.style.transform = 'scale(0.95)';
-                    
-                    setTimeout(() => {
-                        card.remove();
-                        allProducts = allProducts.filter(p => p.id !== productId);
-                        updateStatistics();
-                        
-                        if (allProducts.length === 0) {
-                            elements.noProducts.style.display = 'block';
-                        }
-                    }, 300);
+                    // Загружаем обновленные данные
+                    await loadProducts();
                     
                 } catch (error) {
                     this.innerHTML = '❌ Ошибка';
@@ -1111,19 +1147,27 @@
 
         // ========== ПОИСК ==========
         elements.searchInput.addEventListener('input', debounce(function() {
-            const query = this.value.toLowerCase().trim();
-            
-            if (!query) {
-                displayProducts(allProducts);
-                return;
-            }
-            
-            const filtered = allProducts.filter(product =>
-                product.name.toLowerCase().includes(query)
-            );
-            
-            displayProducts(filtered);
+            currentSearchQuery = this.value.toLowerCase().trim();
+            elements.clearSearch.style.display = currentSearchQuery ? 'block' : 'none';
+            displayProducts();
         }, 300));
+
+        // Кнопка очистки поиска
+        elements.clearSearch.addEventListener('click', function() {
+            elements.searchInput.value = '';
+            currentSearchQuery = '';
+            this.style.display = 'none';
+            displayProducts();
+            elements.searchInput.focus();
+        });
+
+        // Поиск по Enter
+        elements.searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                currentSearchQuery = elements.searchInput.value.toLowerCase().trim();
+                displayProducts();
+            }
+        });
 
         // ========== СТАТИСТИКА ==========
         function updateStatistics() {
@@ -1204,7 +1248,9 @@
             // Escape - очистить поиск
             if (e.key === 'Escape' && document.activeElement === elements.searchInput) {
                 elements.searchInput.value = '';
-                displayProducts(allProducts);
+                currentSearchQuery = '';
+                elements.clearSearch.style.display = 'none';
+                displayProducts();
             }
         });
     </script>
