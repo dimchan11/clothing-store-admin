@@ -19,48 +19,77 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Загружаем данные из файла
+// Загружаем данные из файла (или создаем новый)
 async function loadData() {
     try {
+        // Проверяем, существует ли файл
+        try {
+            await fs.access(DATA_FILE);
+        } catch {
+            // Файла нет - создаем с демо-данными
+            const demoData = getDemoData();
+            await saveData(demoData);
+            return demoData;
+        }
+        
+        // Читаем существующий файл
         const data = await fs.readFile(DATA_FILE, 'utf8');
+        
+        // Проверяем, не пустой ли файл
+        if (!data.trim()) {
+            const demoData = getDemoData();
+            await saveData(demoData);
+            return demoData;
+        }
+        
         return JSON.parse(data);
     } catch (error) {
-        // Если файла нет, создаем демо-данные
-        const demoData = [
-            { 
-                id: 1, 
-                name: "Черная футболка Premium", 
-                image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=500&h=500&fit=crop&crop=center",
-                sizes: { S: 15, M: 22, L: 18, XL: 10, XXL: 5 }
-            },
-            { 
-                id: 2, 
-                name: "Синие джинсы Slim Fit", 
-                image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=500&h=500&fit=crop&crop=center",
-                sizes: { S: 8, M: 25, L: 30, XL: 15, XXL: 7 }
-            },
-            { 
-                id: 3, 
-                name: "Красное вечернее платье", 
-                image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=500&h=500&fit=crop&crop=center",
-                sizes: { S: 12, M: 20, L: 15, XL: 8, XXL: 3 }
-            },
-            { 
-                id: 4, 
-                name: "Белая рубашка офисная", 
-                image: "https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=500&h=500&fit=crop&crop=center",
-                sizes: { S: 10, M: 18, L: 22, XL: 12, XXL: 6 }
-            }
-        ];
-        
-        await saveData(demoData);
-        return demoData;
+        console.error('Ошибка загрузки данных:', error);
+        // Возвращаем демо-данные в случае ошибки
+        return getDemoData();
     }
+}
+
+// Демо-данные по умолчанию
+function getDemoData() {
+    return [
+        { 
+            id: 1, 
+            name: "Черная футболка Premium", 
+            image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=500&h=500&fit=crop&crop=center",
+            sizes: { S: 15, M: 22, L: 18, XL: 10, XXL: 5 }
+        },
+        { 
+            id: 2, 
+            name: "Синие джинсы Slim Fit", 
+            image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=500&h=500&fit=crop&crop=center",
+            sizes: { S: 8, M: 25, L: 30, XL: 15, XXL: 7 }
+        },
+        { 
+            id: 3, 
+            name: "Красное вечернее платье", 
+            image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=500&h=500&fit=crop&crop=center",
+            sizes: { S: 12, M: 20, L: 15, XL: 8, XXL: 3 }
+        },
+        { 
+            id: 4, 
+            name: "Белая рубашка офисная", 
+            image: "https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=500&h=500&fit=crop&crop=center",
+            sizes: { S: 10, M: 18, L: 22, XL: 12, XXL: 6 }
+        }
+    ];
 }
 
 // Сохраняем данные в файл
 async function saveData(data) {
-    await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+    try {
+        await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+        console.log('Данные сохранены в файл');
+    } catch (error) {
+        console.error('Ошибка сохранения данных:', error);
+        // В случае ошибки записи, просто логируем
+        // Данные останутся в памяти
+    }
 }
 
 // Генерируем новый ID
@@ -79,7 +108,10 @@ app.get('/api/items', async (req, res) => {
         res.json(data);
     } catch (error) {
         console.error('Ошибка загрузки данных:', error);
-        res.status(500).json({ error: 'Ошибка загрузки данных' });
+        res.status(500).json({ 
+            error: 'Ошибка загрузки данных',
+            demo: getDemoData() // Отправляем демо-данные при ошибке
+        });
     }
 });
 
@@ -111,7 +143,10 @@ app.post('/api/items', async (req, res) => {
         res.status(201).json(newItem);
     } catch (error) {
         console.error('Ошибка добавления товара:', error);
-        res.status(500).json({ error: 'Ошибка добавления товара' });
+        res.status(500).json({ 
+            error: 'Ошибка добавления товара',
+            message: error.message
+        });
     }
 });
 
@@ -135,7 +170,10 @@ app.put('/api/items/:id', async (req, res) => {
         res.json(data[itemIndex]);
     } catch (error) {
         console.error('Ошибка обновления товара:', error);
-        res.status(500).json({ error: 'Ошибка обновления данных' });
+        res.status(500).json({ 
+            error: 'Ошибка обновления данных',
+            message: error.message
+        });
     }
 });
 
@@ -161,7 +199,10 @@ app.delete('/api/items/:id', async (req, res) => {
         });
     } catch (error) {
         console.error('Ошибка удаления товара:', error);
-        res.status(500).json({ error: 'Ошибка удаления товара' });
+        res.status(500).json({ 
+            error: 'Ошибка удаления товара',
+            message: error.message
+        });
     }
 });
 
@@ -170,13 +211,27 @@ app.get('/health', (req, res) => {
     res.json({ 
         status: 'OK', 
         timestamp: new Date().toISOString(),
-        service: 'Clothing Store API'
+        service: 'Clothing Store API',
+        version: '1.0.0'
+    });
+});
+
+// Тестовый маршрут для проверки
+app.get('/test', (req, res) => {
+    res.json({
+        message: 'Сервер работает',
+        timestamp: new Date().toISOString(),
+        dataFile: DATA_FILE,
+        exists: fs.existsSync ? fs.existsSync(DATA_FILE) : 'unknown'
     });
 });
 
 // Обработка 404
 app.use((req, res) => {
-    res.status(404).json({ error: 'Маршрут не найден' });
+    res.status(404).json({ 
+        error: 'Маршрут не найден',
+        path: req.path
+    });
 });
 
 // Обработка ошибок
@@ -184,15 +239,28 @@ app.use((err, req, res, next) => {
     console.error('Ошибка сервера:', err);
     res.status(500).json({ 
         error: 'Внутренняя ошибка сервера',
-        message: process.env.NODE_ENV === 'development' ? err.message : undefined
+        message: err.message,
+        timestamp: new Date().toISOString()
     });
 });
 
+// Инициализация данных при старте
+async function initializeData() {
+    try {
+        console.log('Инициализация данных...');
+        const data = await loadData();
+        console.log(`Загружено ${data.length} товаров`);
+    } catch (error) {
+        console.error('Ошибка инициализации данных:', error);
+    }
+}
+
 // Старт сервера
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log('🚀 Сервер запущен!');
     console.log(`📍 Порт: ${PORT}`);
     console.log(`🌐 Ссылка: http://localhost:${PORT}`);
+    console.log(`📁 Файл данных: ${DATA_FILE}`);
     console.log('📋 Доступные маршруты:');
     console.log('   GET  /              - Главная страница');
     console.log('   GET  /api/items     - Все товары');
@@ -200,4 +268,8 @@ app.listen(PORT, () => {
     console.log('   PUT  /api/items/:id - Обновить товар');
     console.log('   DELETE /api/items/:id - Удалить товар');
     console.log('   GET  /health        - Проверка здоровья');
+    console.log('   GET  /test          - Тестовый маршрут');
+    
+    // Инициализируем данные
+    await initializeData();
 });
