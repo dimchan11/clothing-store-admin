@@ -10,11 +10,13 @@ const DATA_FILE = path.join(__dirname, 'data.json');
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+
+// Обслуживаем статические файлы из текущей директории
+app.use(express.static(__dirname));
 
 // Корневой маршрут - отдаем HTML
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // Загружаем данные из файла
