@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "build": "echo 'Build step не требуется'",
-    "postinstall": "if [ ! -f data.json ]; then echo '[]' > data.json; echo 'Создан файл data.json'; fi"
+    "postinstall": "echo 'Установка завершена'"
   },
   "keywords": ["clothing", "store", "inventory", "admin"],
   "author": "Your Name",

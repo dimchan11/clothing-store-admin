@@ -16,7 +16,48 @@ app.use(express.static(__dirname));
 
 // Корневой маршрут - отдаем HTML
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    // Пытаемся отправить index.html
+    const indexPath = path.join(__dirname, 'index.html');
+    
+    // Проверяем существование файла
+    fs.access(indexPath)
+        .then(() => {
+            res.sendFile(indexPath);
+        })
+        .catch(() => {
+            // Если файл не найден, отправляем простой HTML
+            res.send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Магазин одежды - Админ панель</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+                        .container { max-width: 800px; margin: 0 auto; }
+                        .btn { 
+                            display: inline-block; 
+                            padding: 10px 20px; 
+                            background: #3498db; 
+                            color: white; 
+                            text-decoration: none; 
+                            border-radius: 5px; 
+                            margin: 10px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>👕 Магазин одежды - Админ панель</h1>
+                        <p>Файл index.html не найден. Пожалуйста, убедитесь что он находится в корневой директории.</p>
+                        <p>Доступные API маршруты:</p>
+                        <a href="/api/items" class="btn">📦 Все товары</a>
+                        <a href="/health" class="btn">❤️ Проверка здоровья</a>
+                        <a href="/test" class="btn">🔧 Тест</a>
+                    </div>
+                </body>
+                </html>
+            `);
+        });
 });
 
 // Загружаем данные из файла (или создаем новый)
@@ -85,10 +126,11 @@ async function saveData(data) {
     try {
         await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
         console.log('Данные сохранены в файл');
+        return true;
     } catch (error) {
         console.error('Ошибка сохранения данных:', error);
         // В случае ошибки записи, просто логируем
-        // Данные останутся в памяти
+        return false;
     }
 }
 
@@ -108,10 +150,8 @@ app.get('/api/items', async (req, res) => {
         res.json(data);
     } catch (error) {
         console.error('Ошибка загрузки данных:', error);
-        res.status(500).json({ 
-            error: 'Ошибка загрузки данных',
-            demo: getDemoData() // Отправляем демо-данные при ошибке
-        });
+        // В случае ошибки отправляем демо-данные
+        res.json(getDemoData());
     }
 });
 
@@ -137,7 +177,11 @@ app.post('/api/items', async (req, res) => {
         };
         
         data.push(newItem);
-        await saveData(data);
+        const saved = await saveData(data);
+        
+        if (!saved) {
+            console.warn('Данные не сохранены на диск, но добавлены в память');
+        }
         
         console.log('Товар добавлен, ID:', newItem.id);
         res.status(201).json(newItem);
@@ -165,7 +209,11 @@ app.put('/api/items/:id', async (req, res) => {
         }
         
         data[itemIndex].sizes = sizes;
-        await saveData(data);
+        const saved = await saveData(data);
+        
+        if (!saved) {
+            console.warn('Данные не сохранены на диск, но обновлены в памяти');
+        }
         
         res.json(data[itemIndex]);
     } catch (error) {
@@ -191,7 +239,11 @@ app.delete('/api/items/:id', async (req, res) => {
         }
         
         const deletedItem = data.splice(itemIndex, 1)[0];
-        await saveData(data);
+        const saved = await saveData(data);
+        
+        if (!saved) {
+            console.warn('Данные не сохранены на диск, но удалены из памяти');
+        }
         
         res.json({ 
             message: 'Товар удален', 
@@ -212,7 +264,8 @@ app.get('/health', (req, res) => {
         status: 'OK', 
         timestamp: new Date().toISOString(),
         service: 'Clothing Store API',
-        version: '1.0.0'
+        version: '1.0.0',
+        environment: process.env.NODE_ENV || 'development'
     });
 });
 
@@ -221,16 +274,35 @@ app.get('/test', (req, res) => {
     res.json({
         message: 'Сервер работает',
         timestamp: new Date().toISOString(),
-        dataFile: DATA_FILE,
-        exists: fs.existsSync ? fs.existsSync(DATA_FILE) : 'unknown'
+        directory: __dirname,
+        files: [
+            'index.html',
+            'server.js', 
+            'package.json',
+            'data.json'
+        ]
     });
+});
+
+// Маршрут для получения списка файлов
+app.get('/files', async (req, res) => {
+    try {
+        const files = await fs.readdir(__dirname);
+        res.json({
+            directory: __dirname,
+            files: files
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Обработка 404
 app.use((req, res) => {
     res.status(404).json({ 
         error: 'Маршрут не найден',
-        path: req.path
+        path: req.path,
+        available: ['/', '/api/items', '/health', '/test', '/files']
     });
 });
 
@@ -250,8 +322,83 @@ async function initializeData() {
         console.log('Инициализация данных...');
         const data = await loadData();
         console.log(`Загружено ${data.length} товаров`);
+        
+        // Проверяем существование index.html
+        try {
+            await fs.access(path.join(__dirname, 'index.html'));
+            console.log('✓ Файл index.html найден');
+        } catch {
+            console.warn('⚠ Файл index.html не найден в', __dirname);
+            console.log('Создаю базовый index.html...');
+            
+            const basicHtml = `
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>👕 Магазин одежды - Админ панель</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .container { max-width: 800px; margin: 50px auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        h1 { color: #2c3e50; }
+        .btn { display: inline-block; padding: 12px 24px; margin: 10px; background: #3498db; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; }
+        .btn:hover { background: #2980b9; }
+        .api-list { text-align: left; margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 10px; }
+        .status { padding: 10px; border-radius: 5px; margin: 5px 0; }
+        .status-ok { background: #d4edda; color: #155724; }
+        .status-error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👕 Магазин одежды - Админ панель</h1>
+        <p>API сервер работает. Главный интерфейс не загружен.</p>
+        
+        <div class="api-list">
+            <h3>Доступные API маршруты:</h3>
+            <div class="status status-ok">GET /api/items - 📦 Все товары</div>
+            <div class="status status-ok">POST /api/items - ➕ Добавить товар</div>
+            <div class="status status-ok">PUT /api/items/:id - ✏️ Обновить товар</div>
+            <div class="status status-ok">DELETE /api/items/:id - 🗑️ Удалить товар</div>
+            <div class="status status-ok">GET /health - ❤️ Проверка здоровья</div>
+            <div class="status status-ok">GET /test - 🔧 Тест</div>
+            <div class="status status-ok">GET /files - 📁 Список файлов</div>
+        </div>
+        
+        <div>
+            <a href="/api/items" class="btn">📦 Просмотреть товары</a>
+            <a href="/health" class="btn">❤️ Проверка здоровья</a>
+            <a href="/test" class="btn">🔧 Тест сервера</a>
+            <a href="/files" class="btn">📁 Список файлов</a>
+        </div>
+        
+        <p style="margin-top: 30px; color: #666; font-size: 0.9em;">
+            Для полного функционала загрузите файл index.html в корень проекта
+        </p>
+    </div>
+    
+    <script>
+        // Проверка API
+        async function checkAPI() {
+            try {
+                const response = await fetch('/api/items');
+                const data = await response.json();
+                console.log('API работает, товаров:', data.length);
+            } catch (error) {
+                console.error('Ошибка API:', error);
+            }
+        }
+        checkAPI();
+    </script>
+</body>
+</html>`;
+            
+            await fs.writeFile(path.join(__dirname, 'index.html'), basicHtml);
+            console.log('✓ Базовый index.html создан');
+        }
     } catch (error) {
-        console.error('Ошибка инициализации данных:', error);
+        console.error('Ошибка инициализации:', error);
     }
 }
 
@@ -260,6 +407,7 @@ app.listen(PORT, async () => {
     console.log('🚀 Сервер запущен!');
     console.log(`📍 Порт: ${PORT}`);
     console.log(`🌐 Ссылка: http://localhost:${PORT}`);
+    console.log(`📁 Директория: ${__dirname}`);
     console.log(`📁 Файл данных: ${DATA_FILE}`);
     console.log('📋 Доступные маршруты:');
     console.log('   GET  /              - Главная страница');
@@ -269,6 +417,7 @@ app.listen(PORT, async () => {
     console.log('   DELETE /api/items/:id - Удалить товар');
     console.log('   GET  /health        - Проверка здоровья');
     console.log('   GET  /test          - Тестовый маршрут');
+    console.log('   GET  /files         - Список файлов');
     
     // Инициализируем данные
     await initializeData();
