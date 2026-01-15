@@ -6,18 +6,18 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Обслуживаем статические файлы из текущей директории
-app.use(express.static(__dirname));
+// Обслуживаем статические файлы из папки public
+app.use(express.static(PUBLIC_DIR));
 
-// Корневой маршрут - отдаем HTML
+// Корневой маршрут - отдаем HTML из public
 app.get('/', (req, res) => {
-    // Пытаемся отправить index.html
-    const indexPath = path.join(__dirname, 'index.html');
+    const indexPath = path.join(PUBLIC_DIR, 'index.html');
     
     // Проверяем существование файла
     fs.access(indexPath)
@@ -25,34 +25,52 @@ app.get('/', (req, res) => {
             res.sendFile(indexPath);
         })
         .catch(() => {
-            // Если файл не найден, отправляем простой HTML
-            res.send(`
+            // Если файл не найден, отправляем сообщение
+            res.status(404).send(`
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Магазин одежды - Админ панель</title>
+                    <title>Ошибка - Файл не найден</title>
                     <style>
-                        body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
-                        .container { max-width: 800px; margin: 0 auto; }
-                        .btn { 
-                            display: inline-block; 
-                            padding: 10px 20px; 
-                            background: #3498db; 
-                            color: white; 
-                            text-decoration: none; 
+                        body { 
+                            font-family: Arial, sans-serif; 
+                            padding: 40px; 
+                            text-align: center; 
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            min-height: 100vh;
+                            color: white;
+                        }
+                        .container { 
+                            max-width: 600px; 
+                            margin: 100px auto; 
+                            background: rgba(255, 255, 255, 0.95); 
+                            padding: 40px; 
+                            border-radius: 20px; 
+                            color: #333;
+                        }
+                        h1 { color: #e74c3c; }
+                        .path { 
+                            background: #f8f9fa; 
+                            padding: 10px; 
                             border-radius: 5px; 
-                            margin: 10px;
+                            font-family: monospace;
+                            margin: 20px 0;
                         }
                     </style>
                 </head>
                 <body>
                     <div class="container">
-                        <h1>👕 Магазин одежды - Админ панель</h1>
-                        <p>Файл index.html не найден. Пожалуйста, убедитесь что он находится в корневой директории.</p>
-                        <p>Доступные API маршруты:</p>
-                        <a href="/api/items" class="btn">📦 Все товары</a>
-                        <a href="/health" class="btn">❤️ Проверка здоровья</a>
-                        <a href="/test" class="btn">🔧 Тест</a>
+                        <h1>⚠️ Файл не найден</h1>
+                        <p>Файл index.html не найден по пути:</p>
+                        <div class="path">${indexPath}</div>
+                        <p>Пожалуйста, убедитесь что файл находится в папке <strong>public</strong>.</p>
+                        <p>Проверьте доступные маршруты:</p>
+                        <ul style="text-align: left; margin: 20px 0;">
+                            <li><a href="/api/items">/api/items</a> - Все товары</li>
+                            <li><a href="/health">/health</a> - Проверка здоровья</li>
+                            <li><a href="/test">/test</a> - Тест сервера</li>
+                            <li><a href="/files">/files</a> - Список файлов</li>
+                        </ul>
                     </div>
                 </body>
                 </html>
@@ -129,7 +147,6 @@ async function saveData(data) {
         return true;
     } catch (error) {
         console.error('Ошибка сохранения данных:', error);
-        // В случае ошибки записи, просто логируем
         return false;
     }
 }
@@ -150,7 +167,6 @@ app.get('/api/items', async (req, res) => {
         res.json(data);
     } catch (error) {
         console.error('Ошибка загрузки данных:', error);
-        // В случае ошибки отправляем демо-данные
         res.json(getDemoData());
     }
 });
@@ -265,7 +281,8 @@ app.get('/health', (req, res) => {
         timestamp: new Date().toISOString(),
         service: 'Clothing Store API',
         version: '1.0.0',
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        publicDir: PUBLIC_DIR
     });
 });
 
@@ -274,23 +291,29 @@ app.get('/test', (req, res) => {
     res.json({
         message: 'Сервер работает',
         timestamp: new Date().toISOString(),
-        directory: __dirname,
-        files: [
-            'index.html',
-            'server.js', 
-            'package.json',
-            'data.json'
-        ]
+        rootDir: __dirname,
+        publicDir: PUBLIC_DIR,
+        dataFile: DATA_FILE
     });
 });
 
 // Маршрут для получения списка файлов
 app.get('/files', async (req, res) => {
     try {
-        const files = await fs.readdir(__dirname);
+        const rootFiles = await fs.readdir(__dirname);
+        let publicFiles = [];
+        
+        try {
+            publicFiles = await fs.readdir(PUBLIC_DIR);
+        } catch {
+            console.log('Папка public не найдена');
+        }
+        
         res.json({
-            directory: __dirname,
-            files: files
+            rootDirectory: __dirname,
+            publicDirectory: PUBLIC_DIR,
+            rootFiles: rootFiles,
+            publicFiles: publicFiles
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -320,83 +343,20 @@ app.use((err, req, res, next) => {
 async function initializeData() {
     try {
         console.log('Инициализация данных...');
+        
+        // Создаем папку public если ее нет
+        try {
+            await fs.access(PUBLIC_DIR);
+            console.log(`✓ Папка public найдена: ${PUBLIC_DIR}`);
+        } catch {
+            console.log(`⚠ Папка public не найдена, создаю: ${PUBLIC_DIR}`);
+            await fs.mkdir(PUBLIC_DIR, { recursive: true });
+        }
+        
+        // Загружаем данные
         const data = await loadData();
         console.log(`Загружено ${data.length} товаров`);
         
-        // Проверяем существование index.html
-        try {
-            await fs.access(path.join(__dirname, 'index.html'));
-            console.log('✓ Файл index.html найден');
-        } catch {
-            console.warn('⚠ Файл index.html не найден в', __dirname);
-            console.log('Создаю базовый index.html...');
-            
-            const basicHtml = `
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>👕 Магазин одежды - Админ панель</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
-        .container { max-width: 800px; margin: 50px auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        h1 { color: #2c3e50; }
-        .btn { display: inline-block; padding: 12px 24px; margin: 10px; background: #3498db; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; }
-        .btn:hover { background: #2980b9; }
-        .api-list { text-align: left; margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 10px; }
-        .status { padding: 10px; border-radius: 5px; margin: 5px 0; }
-        .status-ok { background: #d4edda; color: #155724; }
-        .status-error { background: #f8d7da; color: #721c24; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>👕 Магазин одежды - Админ панель</h1>
-        <p>API сервер работает. Главный интерфейс не загружен.</p>
-        
-        <div class="api-list">
-            <h3>Доступные API маршруты:</h3>
-            <div class="status status-ok">GET /api/items - 📦 Все товары</div>
-            <div class="status status-ok">POST /api/items - ➕ Добавить товар</div>
-            <div class="status status-ok">PUT /api/items/:id - ✏️ Обновить товар</div>
-            <div class="status status-ok">DELETE /api/items/:id - 🗑️ Удалить товар</div>
-            <div class="status status-ok">GET /health - ❤️ Проверка здоровья</div>
-            <div class="status status-ok">GET /test - 🔧 Тест</div>
-            <div class="status status-ok">GET /files - 📁 Список файлов</div>
-        </div>
-        
-        <div>
-            <a href="/api/items" class="btn">📦 Просмотреть товары</a>
-            <a href="/health" class="btn">❤️ Проверка здоровья</a>
-            <a href="/test" class="btn">🔧 Тест сервера</a>
-            <a href="/files" class="btn">📁 Список файлов</a>
-        </div>
-        
-        <p style="margin-top: 30px; color: #666; font-size: 0.9em;">
-            Для полного функционала загрузите файл index.html в корень проекта
-        </p>
-    </div>
-    
-    <script>
-        // Проверка API
-        async function checkAPI() {
-            try {
-                const response = await fetch('/api/items');
-                const data = await response.json();
-                console.log('API работает, товаров:', data.length);
-            } catch (error) {
-                console.error('Ошибка API:', error);
-            }
-        }
-        checkAPI();
-    </script>
-</body>
-</html>`;
-            
-            await fs.writeFile(path.join(__dirname, 'index.html'), basicHtml);
-            console.log('✓ Базовый index.html создан');
-        }
     } catch (error) {
         console.error('Ошибка инициализации:', error);
     }
@@ -407,7 +367,8 @@ app.listen(PORT, async () => {
     console.log('🚀 Сервер запущен!');
     console.log(`📍 Порт: ${PORT}`);
     console.log(`🌐 Ссылка: http://localhost:${PORT}`);
-    console.log(`📁 Директория: ${__dirname}`);
+    console.log(`📁 Корневая директория: ${__dirname}`);
+    console.log(`📁 Папка public: ${PUBLIC_DIR}`);
     console.log(`📁 Файл данных: ${DATA_FILE}`);
     console.log('📋 Доступные маршруты:');
     console.log('   GET  /              - Главная страница');
